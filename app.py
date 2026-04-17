@@ -1,4 +1,27 @@
 import os
+from flask import Flask, render_template_string
+
+app = Flask(__name__)
+
+# Tasarım
+HTML = """
+<!DOCTYPE html>
+<html>
+<head><title>Dinler Satis</title></head>
+<body style="text-align:center; padding-top:50px; font-family:sans-serif;">
+    <h1>🚀 DİNLER SATIŞ SİTESİ CANLI!</h1>
+    <p>Sunucu bağlantısı başarıyla sağlandı.</p>
+</body>
+</html>
+"""
+
+@app.route('/')
+def home():
+    return render_template_string(HTML)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)import os
 from flask import Flask, render_template_string, request, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
