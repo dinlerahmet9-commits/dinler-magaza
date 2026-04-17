@@ -4,150 +4,143 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = 'dinler_ozel_anahtar_2026' # Güvenlik için
+# Gizli anahtarı daha güvenli hale getirdik
+app.secret_key = os.environ.get('SECRET_KEY', 'dinler_123456789')
 
-# Veritabanı yolu
+# Veritabanı yapılandırması
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'dukkan.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 db = SQLAlchemy(app)
 
 # --- YÖNETİCİ ŞİFRESİ ---
-ADMIN_PASS = "dinler16" # Panele girmek için kullanacağınız şifre
+ADMIN_PASS = "dinler16"
 
 # --- MODELLER ---
 class Urun(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    ad = db.Column(db.String(100))
-    fiyat = db.Column(db.Float)
-    stok = db.Column(db.Integer)
+    ad = db.Column(db.String(100), nullable=False)
+    fiyat = db.Column(db.Float, nullable=False)
+    stok = db.Column(db.Integer, default=0)
 
-# --- TASARIM (HTML) ---
-LAYOUT = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <title>Dinler Global Satış</title>
-</head>
-<body class="bg-light">
-    <nav class="navbar navbar-dark bg-dark mb-4">
-        <div class="container">
-            <a class="navbar-brand" href="/">🛒 DİNLER GLOBAL</a>
-            <a href="/admin" class="btn btn-outline-light btn-sm">Yönetici Paneli</a>
-        </div>
-    </nav>
-    <div class="container">
-        {% block content %}{% endblock %}
-    </div>
-</body>
-</html>
-"""
-
-VITRIN_HTML = """
-{% extends "layout" %}
-{% block content %}
-<div class="text-center">
-    <h2 class="mb-4">Ürün Katalogu</h2>
-    <div class="row">
-        {% if not urunler %}
-            <div class="alert alert-info">Dükkan henüz hazırlık aşamasında, çok yakında buradayız!</div>
-        {% endif %}
-        {% for urun in urunler %}
-        <div class="col-md-4 mb-4">
-            <div class="card h-100 shadow-sm">
-                <div class="card-body text-start">
-                    <h5>{{ urun.ad }}</h5>
-                    <p class="text-primary fw-bold fs-5">{{ urun.fiyat }} TL</p>
-                    <p class="text-muted">Mevcut Stok: {{ urun.stok }}</p>
-                    <button class="btn btn-dark w-100 mt-2">Satın Al</button>
-                </div>
+# --- TASARIM (TEK PARÇA HTML) ---
+def get_layout(content):
+    return f"""
+    <!DOCTYPE html>
+    <html lang="tr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+            body {{ background-color: #f8f9fa; }}
+            .navbar {{ background-color: #212529 !important; }}
+            .card {{ border: none; border-radius: 10px; transition: 0.3s; }}
+            .card:hover {{ box-shadow: 0 5px 15px rgba(0,0,0,0.1); }}
+        </style>
+        <title>Dinler Satış</title>
+    </head>
+    <body>
+        <nav class="navbar navbar-dark mb-4 shadow-sm">
+            <div class="container">
+                <a class="navbar-brand fw-bold" href="/">🛒 DİNLER GLOBAL</a>
+                <a href="/admin" class="btn btn-outline-light btn-sm">Yönetici Paneli</a>
             </div>
-        </div>
-        {% endfor %}
-    </div>
-</div>
-{% endblock %}
-"""
-
-ADMIN_HTML = """
-{% extends "layout" %}
-{% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-8">
-        <div class="card p-4 mb-4 shadow border-0">
-            <h3>Yeni Ürün Ekle</h3>
-            <form action="/admin/ekle" method="POST" class="row g-3">
-                <div class="col-md-6"><input type="text" name="ad" placeholder="Ürün Adı" class="form-control" required></div>
-                <div class="col-md-3"><input type="number" step="0.01" name="fiyat" placeholder="Fiyat" class="form-control" required></div>
-                <div class="col-md-3"><input type="number" name="stok" placeholder="Stok" class="form-control" required></div>
-                <div class="col-12"><button class="btn btn-success w-100">Dükkana Kaydet</button></div>
-            </form>
-        </div>
-        
-        <div class="card p-4 shadow border-0">
-            <h3>Mevcut Stoklar</h3>
-            <table class="table">
-                <thead><tr><th>Ürün</th><th>Fiyat</th><th>Stok</th><th>İşlem</th></tr></thead>
-                <tbody>
-                    {% for urun in urunler %}
-                    <tr>
-                        <td>{{ urun.ad }}</td><td>{{ urun.fiyat }} TL</td><td>{{ urun.stok }}</td>
-                        <td><a href="/admin/sil/{{ urun.id }}" class="text-danger">Sil</a></td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-{% endblock %}
-"""
+        </nav>
+        <div class="container">{content}</div>
+    </body>
+    </html>
+    """
 
 # --- YOLLAR ---
 @app.route('/')
 def index():
-    urunler = Urun.query.all()
-    return render_template_string(LAYOUT.replace('{% block content %}{% endblock %}', VITRIN_HTML), urunler=urunler)
+    try:
+        urunler = Urun.query.all()
+    except:
+        urunler = []
+    
+    content = '<div class="row">'
+    if not urunler:
+        content += '<div class="col-12 text-center text-muted mt-5"><h5>Henüz ürün eklenmemiş.</h5></div>'
+    for u in urunler:
+        content += f"""
+        <div class="col-md-4 mb-4">
+            <div class="card shadow-sm h-100 p-3">
+                <h5>{u.ad}</h5>
+                <p class="text-primary fw-bold fs-4">{u.fiyat} TL</p>
+                <p class="text-muted small">Stok: {u.stok} adet</p>
+                <button class="btn btn-dark w-100">Sipariş Ver</button>
+            </div>
+        </div>
+        """
+    content += '</div>'
+    return render_template_string(get_layout(content))
 
 @app.route('/admin', methods=['GET', 'POST'])
 def admin():
     if request.method == 'POST':
         if request.form.get('sifre') == ADMIN_PASS:
-            session['admin'] = True
-            return redirect('/admin')
+            session['admin_logged_in'] = True
+            return redirect(url_for('admin'))
     
-    if not session.get('admin'):
-        return render_template_string(LAYOUT.replace('{% block content %}{% endblock %}', """
-            <div class="text-center mt-5">
-                <form method="POST" style="max-width:300px; margin:auto;">
-                    <h4>Yönetici Girişi</h4>
-                    <input type="password" name="sifre" class="form-control mb-2" placeholder="Şifre">
-                    <button class="btn btn-primary w-100">Giriş</button>
+    if not session.get('admin_logged_in'):
+        login_form = """
+        <div class="row justify-content-center mt-5">
+            <div class="col-md-4 card p-4 shadow">
+                <form method="POST text-center">
+                    <h5 class="mb-3">Panel Girişi</h5>
+                    <input type="password" name="sifre" class="form-control mb-3" placeholder="Yönetici Şifresi">
+                    <button class="btn btn-primary w-100">Giriş Yap</button>
                 </form>
             </div>
-        """))
+        </div>
+        """
+        return render_template_string(get_layout(login_form))
     
+    # Yönetici içerik
     urunler = Urun.query.all()
-    return render_template_string(LAYOUT.replace('{% block content %}{% endblock %}', ADMIN_HTML), urunler=urunler)
+    admin_content = f"""
+    <div class="card p-4 shadow-sm mb-4">
+        <h4>Yeni Ürün Ekle</h4>
+        <form action="/admin/ekle" method="POST" class="row g-3">
+            <div class="col-md-6"><input type="text" name="ad" class="form-control" placeholder="Ürün Adı" required></div>
+            <div class="col-md-3"><input type="number" step="0.01" name="fiyat" class="form-control" placeholder="Fiyat" required></div>
+            <div class="col-md-3"><input type="number" name="stok" class="form-control" placeholder="Stok" required></div>
+            <div class="col-12"><button class="btn btn-success w-100">Ekle</button></div>
+        </form>
+    </div>
+    <div class="card p-4 shadow-sm text-center">
+        <h4>Mevcut Stoklar</h4>
+        <table class="table mt-3">
+            <thead><tr><th>Ürün</th><th>Fiyat</th><th>Stok</th></tr></thead>
+            <tbody>
+    """
+    for u in urunler:
+        admin_content += f"<tr><td>{u.ad}</td><td>{u.fiyat} TL</td><td>{u.stok}</td></tr>"
+    
+    admin_content += "</tbody></table><a href='/logout' class='btn btn-link text-danger mt-3'>Çıkış Yap</a></div>"
+    return render_template_string(get_layout(admin_content))
 
 @app.route('/admin/ekle', methods=['POST'])
 def ekle():
-    if session.get('admin'):
-        yeni = Urun(ad=request.form['ad'], fiyat=float(request.form['fiyat']), stok=int(request.form['stok']))
-        db.session.add(yeni)
-        db.session.commit()
-    return redirect('/admin')
+    if session.get('admin_logged_in'):
+        try:
+            ad = request.form.get('ad')
+            fiyat = float(request.form.get('fiyat'))
+            stok = int(request.form.get('stok'))
+            yeni = Urun(ad=ad, fiyat=fiyat, stok=stok)
+            db.session.add(yeni)
+            db.session.commit()
+        except:
+            db.session.rollback()
+    return redirect(url_for('admin'))
 
-@app.route('/admin/sil/<int:id>')
-def sil(id):
-    if session.get('admin'):
-        urun = Urun.query.get(id)
-        db.session.delete(urun)
-        db.session.commit()
-    return redirect('/admin')
+@app.route('/logout')
+def logout():
+    session.pop('admin_logged_in', None)
+    return redirect(url_for('index'))
 
 if __name__ == '__main__':
     with app.app_context():
