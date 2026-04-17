@@ -1,36 +1,13 @@
 import os
-from flask import Flask, render_template_string
-
-app = Flask(__name__)
-
-# Tasarım
-HTML = """
-<!DOCTYPE html>
-<html>
-<head><title>Dinler Satis</title></head>
-<body style="text-align:center; padding-top:50px; font-family:sans-serif;">
-    <h1>🚀 DİNLER SATIŞ SİTESİ CANLI!</h1>
-    <p>Sunucu bağlantısı başarıyla sağlandı.</p>
-</body>
-</html>
-"""
-
-@app.route('/')
-def home():
-    return render_template_string(HTML)
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)import os
 from flask import Flask, render_template_string, request, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
 app = Flask(__name__)
-# İnternette çalışması için gizli anahtar
+# Güvenlik anahtarı
 app.secret_key = os.environ.get('SECRET_KEY', 'dinler_gizli_anahtar_123')
 
-# Veritabanı yolu (İnternet sunucularına uygun hale getirildi)
+# Veritabanı yolu ayarı
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'dukkan.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -49,7 +26,7 @@ class Siparis(db.Model):
     musteri = db.Column(db.String(100))
     tarih = db.Column(db.DateTime, default=datetime.now)
 
-# --- TASARIM (BASİT VE ŞIK) ---
+# --- TASARIM ---
 HTML = """
 <!DOCTYPE html>
 <html>
@@ -64,16 +41,19 @@ HTML = """
         <div class="container"><a class="navbar-brand" href="/">🛒 DİNLER GLOBAL SATIŞ</a></div>
     </nav>
     <div class="container text-center">
-        <h2>Hoş Geldiniz</h2>
-        <p class="lead">Ürünlerimiz yakında burada sergilenecek.</p>
+        <h2 class="mb-4">🚀 Sitemiz Aktif!</h2>
         <div class="row">
+            {% if not urunler %}
+                <p class="lead">Henüz ürün eklenmemiş. Yönetici panelinden ürün ekleyebilirsiniz.</p>
+            {% endif %}
             {% for urun in urunler %}
             <div class="col-md-4">
-                <div class="card mb-3 shadow-sm">
+                <div class="card mb-3 shadow-sm text-start">
                     <div class="card-body">
                         <h5>{{ urun.ad }}</h5>
                         <p class="fw-bold text-primary">{{ urun.fiyat }} TL</p>
                         <p>Stok: {{ urun.stok }}</p>
+                        <button class="btn btn-outline-dark btn-sm w-100">Sipariş Ver</button>
                     </div>
                 </div>
             </div>
@@ -86,12 +66,14 @@ HTML = """
 
 @app.route('/')
 def index():
-    urunler = Urun.query.all()
+    try:
+        urunler = Urun.query.all()
+    except:
+        urunler = []
     return render_template_string(HTML, urunler=urunler)
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    # İnternet sunucuları genelde 5000 yerine bu ayarı bekler
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
