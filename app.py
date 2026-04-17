@@ -1,162 +1,167 @@
 import os
-from flask import Flask, render_template_string, request, redirect, session, url_for
+from flask import Flask, render_template_string, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'dinler_mega_key_2026'
-app.config['SESSION_TYPE'] = 'filesystem'
-
-# Veritabanı Yapılandırması
-basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'dinler_v3.db')
+app.config['SECRET_KEY'] = 'dinler_premium_2026_key'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///dinler_kurumsal.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
 
-# --- VERİTABANI MODELİ ---
+db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+
+# --- VERİTABANI MODELLERİ ---
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    password = db.Column(db.String(100))
+
 class Urun(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    ad = db.Column(db.String(100))
-    fiyat = db.Column(db.String(20))
+    ad = db.Column(db.String(200))
+    fiyat = db.Column(db.String(50))
     stok = db.Column(db.Integer)
     gorsel = db.Column(db.String(500))
 
-# --- TRENDYOL & SHOPIER TARZI TASARIM (CSS) ---
-CSS = """
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# --- PROFESYONEL TASARIM (CSS) ---
+DESIGN = """
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
-    :root { --ana-renk: #ff6000; --koyu: #1e1e2d; }
-    body { background-color: #f6f9ff; font-family: 'Inter', sans-serif; color: #333; }
-    .navbar { background-color: var(--koyu); border-bottom: 3px solid var(--ana-renk); }
-    .navbar-brand { font-weight: 800; letter-spacing: 1px; color: white !important; }
-    .card { border: none; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); transition: 0.3s; background: white; }
-    .card:hover { transform: translateY(-10px); box-shadow: 0 15px 35px rgba(0,0,0,0.1); }
-    .price-tag { color: var(--ana-renk); font-size: 1.5rem; font-weight: 800; }
-    .btn-buy { background: var(--ana-renk); color: white; border-radius: 12px; font-weight: 600; border: none; padding: 12px; }
-    .btn-buy:hover { background: #e65600; color: white; }
-    .admin-panel { background: white; border-radius: 20px; padding: 30px; margin-top: 30px; }
-    .badge-stok { background: #e8fadf; color: #28a745; padding: 5px 12px; border-radius: 8px; font-size: 0.8rem; }
+    body { font-family: 'Poppins', sans-serif; background-color: #f4f6f9; }
+    .navbar { background: #ffffff; border-bottom: 1px solid #eee; padding: 15px 0; }
+    .navbar-brand { font-weight: 700; color: #ff6000 !important; font-size: 24px; }
+    .hero-section { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 60px 0; border-radius: 0 0 50px 50px; }
+    .card-product { border: none; border-radius: 20px; transition: 0.4s; background: #fff; overflow: hidden; height: 100%; }
+    .card-product:hover { transform: translateY(-10px); box-shadow: 0 20px 40px rgba(0,0,0,0.08); }
+    .price { color: #ff6000; font-weight: 700; font-size: 20px; }
+    .btn-cart { background: #ff6000; color: white; border-radius: 10px; border: none; padding: 10px 20px; font-weight: 600; width: 100%; }
+    .btn-cart:hover { background: #e65600; color: white; }
+    .admin-card { background: white; border-radius: 20px; padding: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
 </style>
 """
 
-# --- SAYFALAR ---
+# --- SAYFA FONKSİYONLARI ---
 @app.route('/')
 def index():
-    try:
-        urunler = Urun.query.all()
-    except:
-        urunler = []
-    
+    urunler = Urun.query.all()
     kartlar = ""
     for u in urunler:
-        gorsel = u.gorsel if u.gorsel else "https://via.placeholder.com/300x200?text=Urun+Gorseli"
+        img = u.gorsel if u.gorsel else "https://via.placeholder.com/400x400.png?text=Dinler+Satis"
         kartlar += f'''
-        <div class="col-lg-3 col-md-6 mb-4">
-            <div class="card h-100 overflow-hidden">
-                <img src="{gorsel}" class="card-img-top" style="height:200px; object-fit:cover;">
+        <div class="col-lg-3 col-md-4 col-6 mb-4">
+            <div class="card-product shadow-sm">
+                <img src="{img}" class="card-img-top" style="height:250px; object-fit:cover;">
                 <div class="card-body">
-                    <span class="badge-stok mb-2 d-inline-block">Stokta Var ({u.stok})</span>
-                    <h5 class="fw-bold mb-2">{u.ad}</h5>
-                    <div class="d-flex justify-content-between align-items-center mt-3">
-                        <span class="price-tag">{u.fiyat} TL</span>
-                        <button class="btn btn-buy shadow-sm px-4">Al</button>
-                    </div>
+                    <h6 class="text-muted mb-1 text-uppercase small">Dinler Global</h6>
+                    <h5 class="fw-bold mb-2" style="font-size:16px;">{u.ad}</h5>
+                    <div class="price mb-3 text-center">{u.fiyat} TL</div>
+                    <button class="btn-cart shadow-sm">Sepete Ekle</button>
                 </div>
             </div>
         </div>
         '''
     
-    return render_template_string(CSS + f"""
-    <nav class="navbar navbar-expand-lg navbar-dark p-3">
+    return render_template_string(DESIGN + f"""
+    <nav class="navbar navbar-expand-lg sticky-top">
         <div class="container">
-            <a class="navbar-brand" href="/">DİNLER <span style="color:var(--ana-renk)">SATIŞ</span></a>
-            <a href="/admin" class="btn btn-outline-light btn-sm rounded-pill"><i class="fa fa-lock me-2"></i>Panel</a>
+            <a class="navbar-brand" href="/">DİNLER <span style="color:#333">SATIŞ</span></a>
+            <div class="d-flex align-items-center">
+                <a href="/login" class="btn btn-outline-dark btn-sm rounded-pill px-4">Yönetici</a>
+            </div>
         </div>
     </nav>
-    <div class="container mt-5">
-        <div class="d-flex justify-content-between align-items-center mb-5">
-            <h2 class="fw-bold m-0 text-dark">Popüler Ürünler</h2>
-            <div class="text-muted">Toplam {len(urunler)} ürün listeleniyor</div>
+    <div class="hero-section text-center mb-5">
+        <div class="container">
+            <h1 class="display-4 fw-bold">Yeni Nesil Alışveriş</h1>
+            <p class="lead opacity-75">Dinler Satış Paneli ile güvenli ve hızlı ticaret.</p>
         </div>
-        <div class="row">
-            {kartlar if urunler else '<div class="col-12 text-center py-5"><i class="fa fa-box-open fa-4x text-muted mb-3"></i><h4>Henüz ürün eklenmedi</h4></div>'}
+    </div>
+    <div class="container pb-5">
+        <div class="row">{kartlar if urunler else '<h4 class="text-center text-muted">Vitrinimiz hazırlanıyor...</h4>'}</div>
+    </div>
+    """)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        if request.form.get('password') == 'dinler16':
+            user = User.query.first()
+            login_user(user)
+            return redirect(url_for('admin'))
+    return render_template_string(DESIGN + """
+    <div class="container mt-5 pt-5">
+        <div class="admin-card mx-auto" style="max-width:400px;">
+            <h3 class="text-center fw-bold mb-4">Yönetici Girişi</h3>
+            <form method="POST">
+                <input type="password" name="password" class="form-control form-control-lg mb-3 rounded-4" placeholder="Şifre" required>
+                <button type="submit" class="btn btn-dark btn-lg w-100 rounded-4">Giriş Yap</button>
+            </form>
         </div>
     </div>
     """)
 
-@app.route('/admin', methods=['GET', 'POST'])
+@app.route('/admin')
+@login_required
 def admin():
-    if request.method == 'POST':
-        if request.form.get('sifre') == "dinler16":
-            session['auth'] = True
-            return redirect(url_for('admin'))
-    
-    if not session.get('auth'):
-        return render_template_string(CSS + """
-        <div class="container mt-5">
-            <div class="card p-5 shadow mx-auto text-center" style="max-width:450px; border-top: 5px solid #ff6000;">
-                <h3 class="fw-bold mb-4">Giriş Yap</h3>
-                <form method="POST">
-                    <input type="password" name="sifre" class="form-control form-control-lg mb-3 text-center" placeholder="Yönetici Şifresi" autofocus>
-                    <button type="submit" class="btn btn-dark btn-lg w-100 shadow">Sisteme Gir</button>
-                </form>
-            </div>
-        </div>
-        """)
-    
     urunler = Urun.query.all()
     satirlar = ""
     for u in urunler:
-        satirlar += f"<tr><td>{u.ad}</td><td><b>{u.fiyat} TL</b></td><td>{u.stok}</td><td><a href='/sil/{u.id}' class='btn btn-sm btn-outline-danger'><i class='fa fa-trash'></i></a></td></tr>"
-
-    return render_template_string(CSS + f"""
-    <div class="container mt-4">
-        <div class="admin-panel shadow-sm border">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h3 class="fw-bold m-0 text-dark">Dinler Satış Paneli</h3>
-                <a href="/logout" class="btn btn-danger btn-sm rounded-pill">Güvenli Çıkış</a>
+        satirlar += f"<tr><td>{u.ad}</td><td>{u.fiyat} TL</td><td>{u.stok}</td><td><a href='/delete/{u.id}' class='btn btn-danger btn-sm'>Sil</a></td></tr>"
+    
+    return render_template_string(DESIGN + f"""
+    <div class="container mt-5">
+        <div class="admin-card">
+            <div class="d-flex justify-content-between mb-4">
+                <h2 class="fw-bold">Mağaza Yönetimi</h2>
+                <a href="/logout" class="btn btn-outline-danger">Çıkış</a>
             </div>
-            <form action="/ekle" method="POST" class="row g-3 p-3 bg-light rounded-4 mb-5">
-                <div class="col-md-4"><label class="small fw-bold">Ürün Adı</label><input name="ad" class="form-control" required></div>
-                <div class="col-md-2"><label class="small fw-bold">Fiyat</label><input name="fiyat" class="form-control" required></div>
-                <div class="col-md-2"><label class="small fw-bold">Stok</label><input name="stok" type="number" class="form-control" required></div>
-                <div class="col-md-4"><label class="small fw-bold">Görsel Linki (Opsiyonel)</label><input name="gorsel" class="form-control" placeholder="https://..."></div>
-                <div class="col-12"><button type="submit" class="btn btn-buy w-100 py-3">Ürünü Vitrine Fırlat</button></div>
+            <form action="/add" method="POST" class="row g-3 mb-5 border p-3 rounded-4 bg-light">
+                <div class="col-md-4"><input name="ad" class="form-control" placeholder="Ürün Adı" required></div>
+                <div class="col-md-2"><input name="fiyat" class="form-control" placeholder="Fiyat (1.500)" required></div>
+                <div class="col-md-2"><input name="stok" type="number" class="form-control" placeholder="Stok" required></div>
+                <div class="col-md-4"><input name="gorsel" class="form-control" placeholder="Resim Linki"></div>
+                <div class="col-12"><button class="btn btn-success w-100 shadow-sm py-2">Ürünü Yayınla</button></div>
             </form>
-            <h4 class="fw-bold mb-3">Envanter Listesi</h4>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle">
-                    <thead class="table-dark"><tr><th>Ürün</th><th>Fiyat</th><th>Stok</th><th>İşlem</th></tr></thead>
-                    <tbody>{satirlar}</tbody>
-                </table>
-            </div>
+            <table class="table table-hover">
+                <thead><tr><th>Ürün</th><th>Fiyat</th><th>Stok</th><th>İşlem</th></tr></thead>
+                <tbody>{satirlar}</tbody>
+            </table>
         </div>
     </div>
     """)
 
-@app.route('/ekle', methods=['POST'])
-def ekle():
-    if session.get('auth'):
-        yeni = Urun(ad=request.form['ad'], fiyat=request.form['fiyat'], stok=int(request.form['stok']), gorsel=request.form.get('gorsel'))
-        db.session.add(yeni)
-        db.session.commit()
+@app.route('/add', methods=['POST'])
+@login_required
+def add():
+    yeni = Urun(ad=request.form['ad'], fiyat=request.form['fiyat'], stok=int(request.form['stok']), gorsel=request.form.get('gorsel'))
+    db.session.add(yeni)
+    db.session.commit()
     return redirect(url_for('admin'))
 
-@app.route('/sil/<int:id>')
-def sil(id):
-    if session.get('auth'):
-        u = Urun.query.get(id)
-        db.session.delete(u)
-        db.session.commit()
+@app.route('/delete/<int:id>')
+@login_required
+def delete(id):
+    u = Urun.query.get(id)
+    db.session.delete(u)
+    db.session.commit()
     return redirect(url_for('admin'))
 
 @app.route('/logout')
 def logout():
-    session.clear()
+    logout_user()
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        if not User.query.first():
+            db.session.add(User(password='dinler16'))
+            db.session.commit()
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
