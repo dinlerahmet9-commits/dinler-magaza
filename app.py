@@ -1,137 +1,220 @@
 import os
-from flask import Flask, render_template_string, request, redirect, url_for, flash
+from flask import Flask, render_template_string, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'dinler_premium_2026_key'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///dinler_kurumsal.db'
+app.config['SECRET_KEY'] = 'dinler_mega_platform_2026'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///dinler_pazar.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# --- VERİTABANI MODELLERİ ---
+# --- MODELLER ---
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    password = db.Column(db.String(100))
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+    role = db.Column(db.String(20), default='buyer') # 'buyer' veya 'seller'
+    guvenlik_sorusu = db.Column(db.String(200))
+    guvenlik_cevabi = db.Column(db.String(200))
 
 class Urun(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    ad = db.Column(db.String(200))
-    fiyat = db.Column(db.String(50))
-    stok = db.Column(db.Integer)
+    ad = db.Column(db.String(200), nullable=False)
+    fiyat = db.Column(db.Float, nullable=False)
+    kategori = db.Column(db.String(50))
     gorsel = db.Column(db.String(500))
+    satici_id = db.Column(db.Integer, db.ForeignKey('user.id'))
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# --- PROFESYONEL TASARIM (CSS) ---
+# --- TASARIM SİSTEMİ (CSS) ---
 DESIGN = """
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <style>
-    body { font-family: 'Poppins', sans-serif; background-color: #f4f6f9; }
-    .navbar { background: #ffffff; border-bottom: 1px solid #eee; padding: 15px 0; }
-    .navbar-brand { font-weight: 700; color: #ff6000 !important; font-size: 24px; }
-    .hero-section { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 60px 0; border-radius: 0 0 50px 50px; }
-    .card-product { border: none; border-radius: 20px; transition: 0.4s; background: #fff; overflow: hidden; height: 100%; }
-    .card-product:hover { transform: translateY(-10px); box-shadow: 0 20px 40px rgba(0,0,0,0.08); }
-    .price { color: #ff6000; font-weight: 700; font-size: 20px; }
-    .btn-cart { background: #ff6000; color: white; border-radius: 10px; border: none; padding: 10px 20px; font-weight: 600; width: 100%; }
-    .btn-cart:hover { background: #e65600; color: white; }
-    .admin-card { background: white; border-radius: 20px; padding: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+    :root { --main: #ff6000; --dark: #1e1e2d; }
+    body { background: #f4f6f9; font-family: 'Poppins', sans-serif; }
+    .navbar { background: white; border-bottom: 2px solid var(--main); }
+    .nav-link { color: var(--dark) !important; font-weight: 500; }
+    .btn-main { background: var(--main); color: white; border-radius: 8px; border: none; }
+    .btn-main:hover { background: #e65600; color: white; }
+    .search-bar { border-radius: 20px 0 0 20px; border: 1px solid #ddd; }
+    .search-btn { border-radius: 0 20px 20px 0; background: var(--main); color: white; border: none; }
+    .product-card { border: none; border-radius: 15px; transition: 0.3s; background: white; }
+    .product-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+    .sidebar { background: white; border-radius: 15px; padding: 20px; }
 </style>
 """
 
-# --- SAYFA FONKSİYONLARI ---
+# --- ORTAK NAVBAR ---
+def get_nav():
+    auth_links = ""
+    if current_user.is_authenticated:
+        panel_link = url_for('seller_panel') if current_user.role == 'seller' else url_for('buyer_panel')
+        auth_links = f'''
+            <li class="nav-item"><a class="nav-link" href="{panel_link} text-primary fw-bold">Panelim</a></li>
+            <li class="nav-item"><a class="nav-link text-danger" href="/logout">Çıkış</a></li>
+        '''
+    else:
+        auth_links = '''
+            <li class="nav-item"><a class="nav-link" href="/login">Giriş Yap</a></li>
+            <li class="nav-item"><a class="btn btn-main btn-sm px-3 ms-2" href="/register">Hesap Aç</a></li>
+        '''
+    
+    return f'''
+    <nav class="navbar navbar-expand-lg sticky-top mb-4">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="/">DİNLER <span style="color:var(--main)">SATIŞ</span></a>
+            <form class="d-flex mx-auto w-50" action="/" method="GET">
+                <input class="form-control search-bar" name="q" type="search" placeholder="Ürün veya kategori ara...">
+                <button class="search-btn px-3" type="submit"><i class="fa fa-search"></i></button>
+            </form>
+            <ul class="navbar-nav ms-auto align-items-center">{auth_links}</ul>
+        </div>
+    </nav>
+    '''
+
+# --- YOLLAR ---
+
 @app.route('/')
 def index():
-    urunler = Urun.query.all()
+    query = request.args.get('q', '')
+    kat = request.args.get('kat', '')
+    
+    urun_query = Urun.query
+    if query:
+        urun_query = urun_query.filter(Urun.ad.contains(query) | Urun.kategori.contains(query))
+    if kat:
+        urun_query = urun_query.filter_by(kategori=kat)
+    
+    urunler = urun_query.all()
+    
     kartlar = ""
     for u in urunler:
-        img = u.gorsel if u.gorsel else "https://via.placeholder.com/400x400.png?text=Dinler+Satis"
+        img = u.gorsel if u.gorsel else "https://via.placeholder.com/300x300?text=Urun"
         kartlar += f'''
-        <div class="col-lg-3 col-md-4 col-6 mb-4">
-            <div class="card-product shadow-sm">
-                <img src="{img}" class="card-img-top" style="height:250px; object-fit:cover;">
-                <div class="card-body">
-                    <h6 class="text-muted mb-1 text-uppercase small">Dinler Global</h6>
-                    <h5 class="fw-bold mb-2" style="font-size:16px;">{u.ad}</h5>
-                    <div class="price mb-3 text-center">{u.fiyat} TL</div>
-                    <button class="btn-cart shadow-sm">Sepete Ekle</button>
+        <div class="col-md-4 mb-4">
+            <div class="product-card shadow-sm p-3 h-100">
+                <img src="{img}" class="img-fluid rounded mb-3" style="height:200px; width:100%; object-fit:cover;">
+                <h6 class="text-muted small">{u.kategori}</h6>
+                <h5 class="fw-bold">{u.ad}</h5>
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <span class="fs-4 fw-bold text-main" style="color:var(--main)">{u.fiyat} TL</span>
+                    <button class="btn btn-dark btn-sm rounded-pill px-3">Sepete Ekle</button>
                 </div>
             </div>
         </div>
         '''
-    
-    return render_template_string(DESIGN + f"""
-    <nav class="navbar navbar-expand-lg sticky-top">
-        <div class="container">
-            <a class="navbar-brand" href="/">DİNLER <span style="color:#333">SATIŞ</span></a>
-            <div class="d-flex align-items-center">
-                <a href="/login" class="btn btn-outline-dark btn-sm rounded-pill px-4">Yönetici</a>
+
+    return render_template_string(DESIGN + get_nav() + f"""
+    <div class="container">
+        <div class="row">
+            <div class="col-md-3">
+                <div class="sidebar shadow-sm">
+                    <h5 class="fw-bold mb-3">Kategoriler</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="/" class="text-decoration-none text-dark">Tümü</a></li>
+                        <li><a href="/?kat=Elektronik" class="text-decoration-none text-dark">Elektronik</a></li>
+                        <li><a href="/?kat=Giyim" class="text-decoration-none text-dark">Giyim</a></li>
+                        <li><a href="/?kat=Ev-Yasam" class="text-decoration-none text-dark">Ev & Yaşam</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-9">
+                <div class="row">{kartlar if urunler else '<p class="text-center mt-5">Aradığınız kriterde ürün bulunamadı.</p>'}</div>
             </div>
         </div>
-    </nav>
-    <div class="hero-section text-center mb-5">
-        <div class="container">
-            <h1 class="display-4 fw-bold">Yeni Nesil Alışveriş</h1>
-            <p class="lead opacity-75">Dinler Satış Paneli ile güvenli ve hızlı ticaret.</p>
-        </div>
     </div>
-    <div class="container pb-5">
-        <div class="row">{kartlar if urunler else '<h4 class="text-center text-muted">Vitrinimiz hazırlanıyor...</h4>'}</div>
-    </div>
+    """)
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        hashed_pw = generate_password_hash(request.form['password'])
+        new_user = User(
+            username=request.form['username'], 
+            password=hashed_pw,
+            role=request.form['role'],
+            guvenlik_sorusu="En sevdiğiniz renk nedir?",
+            guvenlik_cevabi=request.form['guvenlik'].lower()
+        )
+        db.session.add(new_user)
+        db.session.commit()
+        return redirect(url_for('login'))
+    
+    return render_template_string(DESIGN + """
+    <div class="container mt-5"><div class="card p-5 mx-auto shadow-lg" style="max-width:500px;">
+        <h2 class="fw-bold text-center mb-4">Hesap Oluştur</h2>
+        <form method="POST">
+            <input name="username" class="form-control mb-3" placeholder="Kullanıcı Adı" required>
+            <input name="password" type="password" class="form-control mb-3" placeholder="Şifre" required>
+            <select name="role" class="form-select mb-3">
+                <option value="buyer">Alıcıyım (Alışveriş yapacağım)</option>
+                <option value="seller">Satıcıyım (Mağazam var)</option>
+            </select>
+            <p class="small text-muted mb-1">Güvenlik Sorusu: En sevdiğiniz renk nedir?</p>
+            <input name="guvenlik" class="form-control mb-4" placeholder="Cevabınız" required>
+            <button class="btn btn-main w-100 py-3">Kayıt Ol</button>
+        </form>
+    </div></div>
     """)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        if request.form.get('password') == 'dinler16':
-            user = User.query.first()
+        user = User.query.filter_by(username=request.form['username']).first()
+        if user and check_password_hash(user.password, request.form['password']):
             login_user(user)
-            return redirect(url_for('admin'))
+            return redirect(url_for('index'))
     return render_template_string(DESIGN + """
-    <div class="container mt-5 pt-5">
-        <div class="admin-card mx-auto" style="max-width:400px;">
-            <h3 class="text-center fw-bold mb-4">Yönetici Girişi</h3>
-            <form method="POST">
-                <input type="password" name="password" class="form-control form-control-lg mb-3 rounded-4" placeholder="Şifre" required>
-                <button type="submit" class="btn btn-dark btn-lg w-100 rounded-4">Giriş Yap</button>
-            </form>
-        </div>
-    </div>
+    <div class="container mt-5"><div class="card p-5 mx-auto shadow-lg" style="max-width:400px;">
+        <h2 class="fw-bold text-center mb-4">Giriş Yap</h2>
+        <form method="POST">
+            <input name="username" class="form-control mb-3" placeholder="Kullanıcı Adı" required>
+            <input name="password" type="password" class="form-control mb-3" placeholder="Şifre" required>
+            <button class="btn btn-dark w-100 py-2">Giriş</button>
+            <div class="text-center mt-3"><a href="/forgot" class="small text-muted">Şifremi Unuttum</a></div>
+        </form>
+    </div></div>
     """)
 
-@app.route('/admin')
+@app.route('/seller-panel')
 @login_required
-def admin():
-    urunler = Urun.query.all()
+def seller_panel():
+    if current_user.role != 'seller': return "Yetkiniz yok."
+    urunler = Urun.query.filter_by(satici_id=current_user.id).all()
     satirlar = ""
     for u in urunler:
-        satirlar += f"<tr><td>{u.ad}</td><td>{u.fiyat} TL</td><td>{u.stok}</td><td><a href='/delete/{u.id}' class='btn btn-danger btn-sm'>Sil</a></td></tr>"
+        satirlar += f"<tr><td>{u.ad}</td><td>{u.fiyat} TL</td><td>{u.kategori}</td><td><a href='/delete/{u.id}' class='text-danger'>Sil</a></td></tr>"
     
-    return render_template_string(DESIGN + f"""
-    <div class="container mt-5">
-        <div class="admin-card">
-            <div class="d-flex justify-content-between mb-4">
-                <h2 class="fw-bold">Mağaza Yönetimi</h2>
-                <a href="/logout" class="btn btn-outline-danger">Çıkış</a>
-            </div>
-            <form action="/add" method="POST" class="row g-3 mb-5 border p-3 rounded-4 bg-light">
+    return render_template_string(DESIGN + get_nav() + f"""
+    <div class="container mt-4">
+        <div class="card p-4 shadow-sm mb-4">
+            <h3>Ürün Ekle (Mağaza Paneli)</h3>
+            <form action="/add" method="POST" class="row g-3">
                 <div class="col-md-4"><input name="ad" class="form-control" placeholder="Ürün Adı" required></div>
-                <div class="col-md-2"><input name="fiyat" class="form-control" placeholder="Fiyat (1.500)" required></div>
-                <div class="col-md-2"><input name="stok" type="number" class="form-control" placeholder="Stok" required></div>
-                <div class="col-md-4"><input name="gorsel" class="form-control" placeholder="Resim Linki"></div>
-                <div class="col-12"><button class="btn btn-success w-100 shadow-sm py-2">Ürünü Yayınla</button></div>
+                <div class="col-md-2"><input name="fiyat" type="number" step="0.01" class="form-control" placeholder="Fiyat" required></div>
+                <div class="col-md-3">
+                    <select name="kategori" class="form-select">
+                        <option value="Elektronik">Elektronik</option>
+                        <option value="Giyim">Giyim</option>
+                        <option value="Ev-Yasam">Ev & Yaşam</option>
+                    </select>
+                </div>
+                <div class="col-md-3"><input name="gorsel" class="form-control" placeholder="Resim Linki"></div>
+                <button class="btn btn-success">Ürünü Satışa Çıkar</button>
             </form>
-            <table class="table table-hover">
-                <thead><tr><th>Ürün</th><th>Fiyat</th><th>Stok</th><th>İşlem</th></tr></thead>
-                <tbody>{satirlar}</tbody>
-            </table>
+        </div>
+        <div class="card p-4 shadow-sm">
+            <h4>Aktif Ürünleriniz</h4>
+            <table class="table">{satirlar}</table>
         </div>
     </div>
     """)
@@ -139,18 +222,10 @@ def admin():
 @app.route('/add', methods=['POST'])
 @login_required
 def add():
-    yeni = Urun(ad=request.form['ad'], fiyat=request.form['fiyat'], stok=int(request.form['stok']), gorsel=request.form.get('gorsel'))
+    yeni = Urun(ad=request.form['ad'], fiyat=float(request.form['fiyat']), kategori=request.form['kategori'], gorsel=request.form.get('gorsel'), satici_id=current_user.id)
     db.session.add(yeni)
     db.session.commit()
-    return redirect(url_for('admin'))
-
-@app.route('/delete/<int:id>')
-@login_required
-def delete(id):
-    u = Urun.query.get(id)
-    db.session.delete(u)
-    db.session.commit()
-    return redirect(url_for('admin'))
+    return redirect(url_for('seller_panel'))
 
 @app.route('/logout')
 def logout():
@@ -159,9 +234,7 @@ def logout():
 
 if __name__ == '__main__':
     with app.app_context():
+        db.session.execute(db.text('DROP TABLE IF EXISTS urun')) # Veritabanı yapısını güncellemek için
         db.create_all()
-        if not User.query.first():
-            db.session.add(User(password='dinler16'))
-            db.session.commit()
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
