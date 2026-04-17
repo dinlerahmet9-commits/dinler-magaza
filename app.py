@@ -3,7 +3,11 @@ from flask import Flask, render_template_string, request, redirect, session, url
 from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
-app.secret_key = "dinler_cok_ozel_anahtar_2026"
+
+# ÖNEMLİ: Bu ayarlar oturumun (session) kopmasını engeller
+app.config['SECRET_KEY'] = 'dinler_cok_gizli_anahtar_2026'
+app.config['SESSION_COOKIE_NAME'] = 'dinler_session'
+app.config['SESSION_PERMANENT'] = True
 
 # Veritabanı Ayarı
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -18,115 +22,115 @@ class Urun(db.Model):
     fiyat = db.Column(db.String(20))
     stok = db.Column(db.Integer)
 
-# --- TASARIM (MODERN VE ŞIK) ---
+# --- TASARIM ---
 CSS = """
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-    body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    .navbar { background: linear-gradient(90deg, #1a1a1a, #4a4a4a); box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
-    .card { border: none; border-radius: 15px; transition: transform 0.3s; }
-    .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
-    .admin-btn { position: fixed; bottom: 20px; right: 20px; border-radius: 50px; padding: 10px 20px; }
+    body { background-color: #f8f9fa; font-family: sans-serif; }
+    .card { border-radius: 15px; border: none; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
 </style>
 """
 
 # --- SAYFALAR ---
 @app.route('/')
 def index():
-    urunler = Urun.query.all()
-    urun_kartlari = ""
+    try:
+        urunler = Urun.query.all()
+    except:
+        urunler = []
+    
+    kartlar = ""
     for u in urunler:
-        urun_kartlari += f'''
+        kartlar += f'''
         <div class="col-md-4 mb-4">
-            <div class="card p-3 shadow-sm h-100">
+            <div class="card p-3 h-100">
                 <h5 class="fw-bold">{u.ad}</h5>
-                <p class="text-primary fs-4 fw-bold mb-1">{u.fiyat} TL</p>
-                <p class="text-muted small">Stok: {u.stok} adet</p>
-                <button class="btn btn-dark w-100 mt-2 rounded-pill">Sipariş Ver</button>
+                <p class="text-success fs-4 fw-bold">{u.fiyat} TL</p>
+                <p class="text-muted small">Stok: {u.stok}</p>
+                <button class="btn btn-dark w-100 mt-2">Sipariş Ver</button>
             </div>
         </div>
         '''
     
-    icerik = f"""
-    <div class="container mt-5 text-center">
-        <h1 class="display-5 fw-bold mb-4">DİNLER GLOBAL MAĞAZA</h1>
+    return render_template_string(CSS + f"""
+    <div class="container mt-5">
+        <h1 class="text-center mb-5 fw-bold">DİNLER GLOBAL MAĞAZA</h1>
         <div class="row">
-            {urun_kartlari if urunler else '<p class="lead mt-5">Ürünlerimiz yakında burada sergilenecek.</p>'}
+            {kartlar if urunler else '<p class="text-center">Henüz ürün eklenmemiş.</p>'}
         </div>
-        <a href="/admin" class="btn btn-outline-secondary btn-sm admin-btn shadow">Yönetici Girişi</a>
+        <div class="text-center mt-5"><a href="/admin" class="btn btn-sm btn-link text-muted">Yönetici Girişi</a></div>
     </div>
-    """
-    return render_template_string(CSS + icerik)
+    """)
 
 @app.route('/admin', methods=['GET', 'POST'])
 def admin():
+    # Şifre kontrolü
     if request.method == 'POST':
         if request.form.get('sifre') == "dinler16":
-            session['admin_giris'] = True
+            session['giris_yapti'] = "evet" # Değeri string yaptık (daha garantidir)
             return redirect(url_for('admin'))
     
-    if not session.get('admin_giris'):
+    # Giriş kontrolü (Eğer oturum yoksa giriş formunu göster)
+    if session.get('giris_yapti') != "evet":
         return render_template_string(CSS + """
-        <div class="container mt-5">
-            <div class="card p-4 shadow-sm mx-auto" style="max-width:400px;">
-                <h4 class="text-center mb-4">Panel Girişi</h4>
+        <div class="container mt-5 text-center">
+            <div class="card p-4 shadow mx-auto" style="max-width:350px;">
+                <h4 class="mb-4">Admin Girişi</h4>
                 <form method="POST">
-                    <input type="password" name="sifre" class="form-control mb-3" placeholder="Şifrenizi Girin">
+                    <input type="password" name="sifre" class="form-control mb-3" placeholder="Şifre" autofocus>
                     <button type="submit" class="btn btn-primary w-100">Giriş Yap</button>
                 </form>
-                <a href="/" class="d-block text-center mt-3 text-decoration-none text-muted">← Mağazaya Dön</a>
             </div>
         </div>
         """)
     
-    # Giriş yapılmışsa Admin Paneli içeriği
+    # Eğer giriş yapılmışsa burası çalışır
     urunler = Urun.query.all()
-    tablo_satirlari = ""
+    satirlar = ""
     for u in urunler:
-        tablo_satirlari += f"<tr><td>{u.ad}</td><td>{u.fiyat} TL</td><td>{u.stok}</td><td><a href='/sil/{u.id}' class='btn btn-danger btn-sm'>Sil</a></td></tr>"
+        satirlar += f"<tr><td>{u.ad}</td><td>{u.fiyat}</td><td>{u.stok}</td><td><a href='/sil/{u.id}' class='btn btn-sm btn-danger'>Sil</a></td></tr>"
 
-    admin_icerik = f"""
+    return render_template_string(CSS + f"""
     <div class="container mt-5">
-        <div class="card p-4 shadow-sm mb-4">
+        <div class="card p-4 mb-4">
             <h3>Yeni Ürün Ekle</h3>
-            <form action="/ekle" method="POST" class="row g-3">
-                <div class="col-md-6"><input type="text" name="ad" class="form-control" placeholder="Ürün Adı" required></div>
-                <div class="col-md-3"><input type="text" name="fiyat" class="form-control" placeholder="Fiyat (Örn: 150.00)" required></div>
-                <div class="col-md-3"><input type="number" name="stok" class="form-control" placeholder="Stok Adedi" required></div>
-                <div class="col-12"><button type="submit" class="btn btn-success w-100">Ürünü Vitrine Ekle</button></div>
+            <form action="/ekle" method="POST" class="row g-2">
+                <div class="col-md-5"><input name="ad" class="form-control" placeholder="Ürün Adı" required></div>
+                <div class="col-md-3"><input name="fiyat" class="form-control" placeholder="Fiyat" required></div>
+                <div class="col-md-2"><input name="stok" type="number" class="form-control" placeholder="Stok" required></div>
+                <div class="col-md-2"><button type="submit" class="btn btn-success w-100">Ekle</button></div>
             </form>
         </div>
-        <div class="card p-4 shadow-sm">
+        <div class="card p-4 text-center">
             <h3>Mevcut Ürünler</h3>
             <table class="table mt-3">
                 <thead><tr><th>Ad</th><th>Fiyat</th><th>Stok</th><th>İşlem</th></tr></thead>
-                <tbody>{tablo_satirlari}</tbody>
+                <tbody>{satirlar}</tbody>
             </table>
-            <a href="/logout" class="btn btn-link text-danger">Güvenli Çıkış</a>
+            <a href="/logout" class="btn btn-link text-danger mt-3">Güvenli Çıkış</a>
         </div>
     </div>
-    """
-    return render_template_string(CSS + admin_icerik)
+    """)
 
 @app.route('/ekle', methods=['POST'])
 def ekle():
-    if session.get('admin_giris'):
-        yeni_urun = Urun(ad=request.form['ad'], fiyat=request.form['fiyat'], stok=int(request.form['stok']))
-        db.session.add(yeni_urun)
+    if session.get('giris_yapti') == "evet":
+        yeni = Urun(ad=request.form['ad'], fiyat=request.form['fiyat'], stok=int(request.form['stok']))
+        db.session.add(yeni)
         db.session.commit()
     return redirect(url_for('admin'))
 
 @app.route('/sil/<int:id>')
 def sil(id):
-    if session.get('admin_giris'):
-        urun = Urun.query.get(id)
-        db.session.delete(urun)
+    if session.get('giris_yapti') == "evet":
+        u = Urun.query.get(id)
+        db.session.delete(u)
         db.session.commit()
     return redirect(url_for('admin'))
 
 @app.route('/logout')
 def logout():
-    session.pop('admin_giris', None)
+    session.clear()
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
